@@ -1,0 +1,174 @@
+name: Second Brain Private Evidence Bridge
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "runtime_trigger/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: second-brain-private-evidence-bridge
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SECOND_BRAIN_GEMINI_EVIDENCE_MODEL: gemini-3.5-flash-lite
+      SECOND_BRAIN_MAX_REQUESTS_PER_RUN: "25"
+      SECOND_BRAIN_MAX_CONCURRENT_SOURCES: "2"
+      SECOND_BRAIN_MAX_CONCURRENT_SEMANTIC: "2"
+      SECOND_BRAIN_SOURCE_TIMEOUT_SECONDS: "120"
+      SECOND_BRAIN_PARTH_TIMEOUT_SECONDS: "35"
+      SECOND_BRAIN_MAX_RETRY_ATTEMPTS: "4"
+
+    steps:
+      - name: Checkout private queue
+        uses: actions/checkout@v4
+        with:
+          repository: SrPuriBuri/second-brain
+          token: ${{ secrets.SECOND_BRAIN_PRIVATE_REPO_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          path: private
+
+      - name: Detect pending private work
+        id: pending
+        shell: bash
+        run: |
+          python3 - <<'PY' > /tmp/bridge-work.txt
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from datetime import datetime, timezone
+
+          root = Path("private")
+          all_requests = list((root / "bridge_requests").glob("*.json"))
+          requests = []
+          now = datetime.now(timezone.utc)
+          for path in all_requests:
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              retry = payload.get("runtime_retry") if isinstance(payload.get("runtime_retry"), dict) else {}
+              if retry.get("state") == "quarantined":
+                  continue
+              retry_after = retry.get("retry_after")
+              if isinstance(retry_after, str) and retry_after:
+                  try:
+                      retry_at = datetime.fromisoformat(retry_after.replace("Z", "+00:00"))
+                  except ValueError:
+                      retry_at = None
+                  if retry_at is not None and retry_at > now:
+                      continue
+              requests.append(path)
+
+          unmaterialized = 0
+          for path in (root / "bridge_evidence").glob("runtime_*/evidence.json"):
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              url = payload.get("canonical_url")
+              if not isinstance(url, str) or not url:
+                  continue
+              source_id = "src_" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:20]
+              analysis = root / "vault" / "data" / "analysis" / f"{source_id}.json"
+              if not analysis.is_file():
+                  unmaterialized += 1
+
+          maintenance_requested = os.getenv("GITHUB_EVENT_NAME") == "push"
+          print(f"request_count={len(all_requests)}")
+          print(f"eligible_request_count={len(requests)}")
+          print(f"unmaterialized_count={unmaterialized}")
+          print(f"has_requests={'true' if requests else 'false'}")
+          print(f"maintenance_requested={'true' if maintenance_requested else 'false'}")
+          print(f"has_work={'true' if requests or unmaterialized or maintenance_requested else 'false'}")
+          PY
+          cat /tmp/bridge-work.txt >> "$GITHUB_OUTPUT"
+          request_count=$(grep '^request_count=' /tmp/bridge-work.txt | cut -d= -f2)
+          eligible_request_count=$(grep '^eligible_request_count=' /tmp/bridge-work.txt | cut -d= -f2)
+          unmaterialized_count=$(grep '^unmaterialized_count=' /tmp/bridge-work.txt | cut -d= -f2)
+          maintenance_requested=$(grep '^maintenance_requested=' /tmp/bridge-work.txt | cut -d= -f2)
+          echo "Pending private requests: $request_count"
+          echo "Eligible requests now: $eligible_request_count"
+          echo "Unmaterialized runtime evidence: $unmaterialized_count"
+          echo "Explicit maintenance requested: $maintenance_requested"
+
+      - name: Checkout public runtime
+        if: steps.pending.outputs.has_work == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: runtime
+
+      - name: Setup Python
+        if: steps.pending.outputs.has_work == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: runtime/runtime-requirements.txt
+
+      - name: Install light acquisition and Gemini stack
+        if: steps.pending.outputs.has_work == 'true'
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          fi
+          python -m pip install -r runtime/runtime-requirements.txt
+
+      - name: Process private queue
+        if: steps.pending.outputs.has_requests == 'true'
+        working-directory: runtime
+        run: |
+          python scripts/process_private_bridge_queue.py --private-root ../private
+
+      - name: Materialize runtime evidence into private vault
+        if: steps.pending.outputs.has_work == 'true'
+        env:
+          PYTHONPATH: private/src
+        run: |
+          python private/scripts/materialize_bridge_evidence.py --repo-root private
+
+      - name: Reconcile post-runtime saved-source knowledge
+        if: steps.pending.outputs.has_work == 'true'
+        run: |
+          python private/scripts/reconcile_tiktok_post_runtime_evidence.py --repo-root private
+          python private/scripts/link_tiktok_manual_visual_entities.py --repo-root private
+          python private/scripts/refresh_social_saved_runtime_indexes.py --repo-root private
+
+      - name: Persist evidence and vault to private repository
+        if: steps.pending.outputs.has_work == 'true'
+        working-directory: private
+        shell: bash
+        run: |
+          git config user.name second-brain-bot
+          git config user.email second-brain-bot@users.noreply.github.com
+          git add -A bridge_evidence bridge_requests vault
+          if git diff --cached --quiet; then
+            echo "No private evidence changes to persist."
+            exit 0
+          fi
+          git commit --quiet -m "bridge: persist public runtime evidence [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Private main advanced; rebasing evidence commit (attempt $attempt/3)."
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "Failed to persist private evidence after 3 push attempts." >&2
+          exit 1
