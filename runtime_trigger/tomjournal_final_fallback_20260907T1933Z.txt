@@ -1,0 +1,1 @@
+Retry remaining Tom's Journal sources using external transcript fallback plus visual-only Gemini.
