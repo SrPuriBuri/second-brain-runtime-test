@@ -4,6 +4,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import signal
 import tempfile
 import time
@@ -165,6 +166,48 @@ def youtube_transcript_api(url: str) -> dict[str, Any]:
         "text": " ".join(item["text"] for item in segments),
         "segments": segments,
         "provenance": "youtube-transcript-api",
+    }
+
+
+def youtube_transcript_http_fallback(url: str) -> dict[str, Any]:
+    vid = youtube_id(url)
+    if not vid:
+        raise RuntimeError("YouTube video ID unavailable")
+    response = httpx.get(
+        f"https://youtube-transcript.ai/transcript/{vid}.txt",
+        timeout=30,
+        follow_redirects=True,
+        headers={"User-Agent": "second-brain-public-runtime/1.0"},
+    )
+    response.raise_for_status()
+    raw = response.text.strip()
+    if len(raw) < 100:
+        raise RuntimeError("external YouTube transcript fallback returned insufficient text")
+
+    segments = []
+    clean_lines = []
+    timestamp_re = re.compile(r"^\[(\d+):(\d{2})\]\s*(.+)$")
+    for line in raw.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        match = timestamp_re.match(value)
+        if match:
+            start = int(match.group(1)) * 60 + int(match.group(2))
+            text_value = match.group(3).strip()
+            if text_value:
+                segments.append({"start": start, "end": None, "text": text_value})
+                clean_lines.append(text_value)
+        elif not value.startswith("#") and not value.startswith("---") and not value.lower().startswith(("title:", "source:", "language:", "duration:", "word count:", "available languages:")):
+            clean_lines.append(value)
+
+    text_value = " ".join(clean_lines).strip() or raw
+    return {
+        "available": bool(text_value),
+        "language": None,
+        "text": text_value,
+        "segments": segments,
+        "provenance": "youtube-transcript.ai",
     }
 
 
@@ -497,12 +540,25 @@ def process_youtube(url: str, gemini: Gemini | None) -> dict[str, Any]:
         attempts.append({"method": "youtube-transcript-api", "success": False, "seconds": round(time.monotonic() - t0, 3), "error": str(exc)})
         warnings.append(f"youtube-transcript-api: {exc}")
 
+    if not has_evidence(evidence):
+        t0 = time.monotonic()
+        try:
+            evidence["transcript"] = youtube_transcript_http_fallback(url)
+            attempts.append({"method": "youtube-transcript-http-fallback", "success": has_evidence(evidence), "seconds": round(time.monotonic() - t0, 3)})
+        except Exception as exc:
+            attempts.append({"method": "youtube-transcript-http-fallback", "success": False, "seconds": round(time.monotonic() - t0, 3), "error": str(exc)})
+            warnings.append(f"youtube transcript HTTP fallback: {exc}")
+
     sensors = {}
     pre_visual_sensitive, pre_visual_triggers = youtube_visual_sensitive(source, evidence)
     if gemini:
         t0 = time.monotonic()
         try:
-            result = gemini.youtube_technical(url) if pre_visual_sensitive else gemini.youtube(url)
+            transcript_already_available = bool((evidence.get("transcript") or {}).get("available"))
+            if pre_visual_sensitive and transcript_already_available:
+                result = gemini.youtube_visual(url)
+            else:
+                result = gemini.youtube_technical(url) if pre_visual_sensitive else gemini.youtube(url)
             ge = result["evidence"]
             if has_evidence(evidence):
                 for key in ("visual_evidence", "mentioned_entities", "source_claims", "uncertainties"):
@@ -518,13 +574,13 @@ def process_youtube(url: str, gemini: Gemini | None) -> dict[str, Any]:
                 "usage": result.get("usage"),
             }
             attempts.append({
-                "method": "gemini-youtube-technical" if pre_visual_sensitive else "gemini-youtube-url",
+                "method": "gemini-youtube-visual-focus" if pre_visual_sensitive and transcript_already_available else ("gemini-youtube-technical" if pre_visual_sensitive else "gemini-youtube-url"),
                 "success": True,
                 "seconds": round(time.monotonic() - t0, 3),
             })
         except Exception as exc:
             attempts.append({
-                "method": "gemini-youtube-technical" if pre_visual_sensitive else "gemini-youtube-url",
+                "method": "gemini-youtube-visual-focus" if pre_visual_sensitive and transcript_already_available else ("gemini-youtube-technical" if pre_visual_sensitive else "gemini-youtube-url"),
                 "success": False,
                 "seconds": round(time.monotonic() - t0, 3),
                 "error": str(exc),
