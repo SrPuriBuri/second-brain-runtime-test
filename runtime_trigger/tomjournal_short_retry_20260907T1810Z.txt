@@ -1,0 +1,1 @@
+Retry four short Tom's Journal sources after transient Gemini input-token quota; long-form course remains backoff.
