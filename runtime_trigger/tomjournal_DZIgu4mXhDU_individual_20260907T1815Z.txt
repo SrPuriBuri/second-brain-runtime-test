@@ -1,0 +1,1 @@
+Retry only DZIgu4mXhDU individually to avoid transient Gemini token-rate quota.
