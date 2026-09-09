@@ -6,8 +6,10 @@ Ephemeral GitHub Actions compute layer for the private `SrPuriBuri/second-brain`
 
 - The private repository is the only authoritative memory/vault.
 - The private repository must not be relied on for GitHub Actions compute.
-- This public repository stores runtime code, not personal source queues or durable evidence.
+- This public repository stores runtime code only, not personal source queues, source history, durable evidence, or source-specific trigger artifacts.
+- Source URLs, platform IDs, saved-item identifiers, creator/account names, and source-specific processing context must not be committed to this public repository.
 - The scheduled bridge checks the private queue, exits cheaply when no work is eligible, and processes eligible sources on GitHub-hosted runners.
+- Manual maintenance is invoked with GitHub Actions `workflow_dispatch`; it must not require committing trigger files.
 - Acquisition is adaptive and Gemini-first; raw media is temporary and is not persisted.
 - Successful evidence is written back to the private repository and materialized into its vault.
 - Failed sources remain private and use bounded timeout plus retry backoff.
