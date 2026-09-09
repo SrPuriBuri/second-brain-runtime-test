@@ -81,21 +81,35 @@ external data. Record uncertainty instead of guessing. Return only the requested
 YOUTUBE_VISUAL_PROMPT = """
 This YouTube video is visual-sensitive. Inspect the actual video frames, not only the audio.
 
-Extract a compact visual timeline of the most decision-relevant evidence. For trading/finance
-content, prioritize:
+Extract a COMPREHENSIVE visual timeline of decision-relevant evidence across the whole video.
+Do not stop after only a handful of screenshots when the tutorial contains additional readable
+configuration, prompts, documents, schedules, architecture, code or UI.
+
+For trading/finance content, prioritize:
 - chart instrument/symbol and timeframe when visible;
-- price levels, overnight highs/lows, support/resistance, entries, stops, targets and annotations;
-- indicators, dashboards, statistics, tables and backtest results;
-- broker/platform UI and order/execution evidence;
+- price levels, support/resistance, entries, stops, targets, position/risk information and annotations;
+- indicators, dashboards, statistics, tables and backtest/performance results;
+- broker/platform UI, balances, positions, orders and execution evidence;
 - any visible numbers that materially support or contradict a spoken claim.
 
-Each visual_evidence item should include the best timestamp or time range you can identify,
-the readable text/numbers, and a literal description of what is visible. Do not infer that a
-trade was profitable merely because the creator says so. Do not verify against external data.
+For AI/software/automation/tutorial content, ALSO prioritize:
+- architecture diagrams, strategy documents, watchlists, calendars and task schedules;
+- readable prompt/instruction text and agent handoff instructions;
+- project/folder/file names, persistent logs, journals, evidence files and config structure;
+- model names, reasoning settings, local/cloud settings, thread/project names and task names;
+- API/service/provider names, endpoints and environment-variable NAMES (never reproduce secret values);
+- plugin/connector names and what the UI indicates they are used for;
+- exact times/timezones, notification destinations, status messages and routine cadence;
+- failure modes, recovery/continuity instructions, duplicate-action prevention and kill/stop rules;
+- paid-plan UI, pricing, quotas/limits and the concrete capability the payment unlocks.
 
-Extract source_claims separately when a spoken claim is materially illustrated by a visual.
-Mark uncertainty when labels/numbers are unreadable or when the video does not visually prove
-the spoken claim. Return only the requested JSON.
+For visible strategy/research documents, capture enough readable text to reconstruct the actual
+rules and constraints rather than summarizing them as merely 'a strategy document is shown'.
+
+Each visual_evidence item should include the best timestamp/time range, readable text/numbers,
+and a literal description of what is visible. Keep source claims separate from verification.
+Do not infer profitability. Do not verify against external data. Mark uncertainty instead of guessing.
+Return only the requested JSON.
 """.strip()
 
 PROMPT = """
