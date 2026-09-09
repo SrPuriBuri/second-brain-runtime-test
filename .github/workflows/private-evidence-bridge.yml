@@ -4,10 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
-  push:
-    branches: [main]
-    paths:
-      - "runtime_trigger/**"
 
 permissions:
   contents: read
@@ -88,7 +84,7 @@ jobs:
               if not analysis.is_file():
                   unmaterialized += 1
 
-          maintenance_requested = os.getenv("GITHUB_EVENT_NAME") == "push"
+          maintenance_requested = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
           print(f"request_count={len(all_requests)}")
           print(f"eligible_request_count={len(requests)}")
           print(f"unmaterialized_count={unmaterialized}")
@@ -104,7 +100,7 @@ jobs:
           echo "Pending private requests: $request_count"
           echo "Eligible requests now: $eligible_request_count"
           echo "Unmaterialized runtime evidence: $unmaterialized_count"
-          echo "Explicit maintenance requested: $maintenance_requested"
+          echo "Manual maintenance requested: $maintenance_requested"
 
       - name: Checkout public runtime
         if: steps.pending.outputs.has_work == 'true'
