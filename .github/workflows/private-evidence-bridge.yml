@@ -2,6 +2,9 @@ name: Second Brain Private Evidence Bridge
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "runtime_trigger/**"
   schedule:
     - cron: "*/15 * * * *"
 
