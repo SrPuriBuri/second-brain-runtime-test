@@ -37,7 +37,7 @@ class PaperAlpaca:
         self._sdk._session = ReadOnlyPaperSession()
         self.verify_paper()
         # Account status/identity must be the first network operation.
-        self.account()
+        self.inspect_account()
 
     def verify_paper(self):
         verify_paper_url(self._sdk._base_url)
@@ -52,8 +52,15 @@ class PaperAlpaca:
                 return None
             raise SafetyError("PAPER_BROKER_READ_FAILED") from None
 
-    def account(self):
+    def inspect_account(self):
+        """Read identity/status even when the account is not cleared to trade."""
         data = self._read(self._sdk.get_account)
+        if not data.get("id") or not data.get("status"):
+            raise SafetyError("PAPER_ACCOUNT_IDENTITY_MISSING")
+        return data
+
+    def account(self):
+        data = self.inspect_account()
         if (
             not data.get("id")
             or data.get("status") != "ACTIVE"
@@ -69,6 +76,11 @@ class PaperAlpaca:
     def calendar(self, day):
         return self._read(
             self._sdk.get_calendar, GetCalendarRequest(start=day, end=day)
+        )
+
+    def calendar_range(self, start, end):
+        return self._read(
+            self._sdk.get_calendar, GetCalendarRequest(start=start, end=end)
         )
 
     def assets(self):

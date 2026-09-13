@@ -3,56 +3,15 @@
 import argparse
 import json
 import os
-from collections import Counter
 
 from .alpaca_client import PaperAlpaca
 from .config import Config, SafetyError, redact
-from .market_calendar import NY, get_session
+from .diagnostics import run_diagnostics
 from .market_data import MarketData
 from .notify import notify
-from .private_store import PrivateRepoStore, ROOT
+from .private_store import PrivateRepoStore
 from .runner import Runner, utc_now
 from .strategist import provider
-
-
-def inventory(broker, data, now):
-    broker.verify_paper()
-    account = broker.account()
-    assets = broker.assets()
-    tradable = [
-        a
-        for a in assets
-        if a.get("status") == "active"
-        and a.get("tradable")
-        and a.get("class") == "us_equity"
-    ]
-    _, feed, notes = data.snapshots(["SPY"], "iex")
-    session = get_session(broker, now.astimezone(NY).date())
-    return {
-        "mode": "PAPER_ONLY",
-        "paper_verified": True,
-        "account_status": account["status"],
-        "account_id": account["id"],
-        "equity": account["equity"],
-        "cash": account["cash"],
-        "buying_power": account["buying_power"],
-        "shared_account": True,
-        "feed_tested": feed,
-        "sip_entitlement": "unknown",
-        "notes": notes,
-        "active_tradable_count": len(tradable),
-        "sample_symbols": [a["symbol"] for a in tradable[:15]],
-        "fractionable_count": sum(bool(a.get("fractionable")) for a in tradable),
-        "exchanges": dict(Counter(a["exchange"] for a in tradable)),
-        "clock": broker.clock(),
-        "session": {
-            "date": session.trade_date,
-            "open": session.open.isoformat(),
-            "close": session.close.isoformat(),
-        }
-        if session
-        else None,
-    }
 
 
 def main(argv=None):
@@ -62,6 +21,7 @@ def main(argv=None):
         choices=[
             "connectivity",
             "inventory",
+            "validate-paper",
             "slot-status",
             "research",
             "dry-run",
@@ -114,16 +74,20 @@ def main(argv=None):
             return 0
         data = MarketData(config)
         store = PrivateRepoStore(config.pat)
-        if args.command == "inventory":
-            result = inventory(broker, data, now)
-            store.create_append_only_record(
-                ROOT
-                + f"data/evidence/inventory/{now.strftime('%Y%m%dT%H%M%S%f')}.json",
-                result,
-            )
+        if args.command in {"inventory", "validate-paper"}:
+            result = run_diagnostics(broker, data, store, now)
             if os.getenv("GITHUB_ACTIONS") == "true":
-                notify(
-                    {"mode": "PAPER_ONLY", "status": "INVENTORY_PERSISTED_PRIVATELY"}
+                # Phase 2 inspects notification configuration but sends no messages.
+                print(
+                    json.dumps(
+                        {
+                            "mode": "PAPER_ONLY",
+                            "status": "DIAGNOSTIC_PERSISTED_PRIVATELY",
+                            "run_id": result["run_id"],
+                            "execution_ready": False,
+                            "broker_mutations": 0,
+                        }
+                    )
                 )
             else:
                 print(redact(json.dumps(result)))
@@ -140,7 +104,11 @@ def main(argv=None):
         return 0
     except Exception as exc:
         code = str(exc) if isinstance(exc, SafetyError) else "RUNTIME_FAILED"
-        notify({"status": "FAILED", "reason": redact(code)})
+        failure = {"status": "FAILED", "reason": redact(code)}
+        if args.command in {"inventory", "validate-paper"}:
+            print(json.dumps(failure))
+        else:
+            notify(failure)
         return 1
 
 

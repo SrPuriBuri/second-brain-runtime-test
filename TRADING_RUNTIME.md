@@ -32,6 +32,37 @@ DO NOT paste Alpaca keys into ChatGPT, Codex prompts, git files or logs. Set cre
 
 ## Commands and evidence
 
+Phase 2 adds `python -m trading_runtime.cli validate-paper`. It performs read-only
+Paper authentication, account and asset inventory, ownership assessment, calendar
+and slot status, direct IEX/SIP entitlement probes, news/screeners and offline
+dry-run. `inventory` uses the same complete diagnostic. It persists a sanitized
+report under private `data/evidence/connectivity_<timestamp>_<id>.json`, then merges
+observed booleans into `state/readiness.json`; `execution_ready` stays false. It
+does not bind the account, edit strategy/kill switch or send notifications.
+
+The public workflow maps the existing secrets `Alpaca_API_KEY` and
+`Alpaca_Secret_KEY` into `ALPACA_PAPER_API_KEY` and `ALPACA_PAPER_SECRET_KEY`.
+The original Paper-specific secret names remain fallbacks. For private persistence,
+`SECOND_BRAIN_PAT` falls back to the existing `SECOND_BRAIN_PRIVATE_REPO_TOKEN`
+used by the social workflow. Python still reads only the Paper-specific broker
+environment names; the secret aliases cannot choose another endpoint.
+
+Publication and dispatch require authorization. Phase 2 defaults to manual runs;
+the scheduled job is skipped unless the repository variable
+`AI_STOCK_TRADER_RESEARCH_SCHEDULE_ENABLED` is explicitly set to `true` later.
+Do not set it merely to validate connectivity. `scripts/trading_safe_run.py`
+captures output in memory and checks it against configured secret values before
+anything is printed to the job log. It emits a fixed failure code instead of
+leaking a matching credential.
+
+An unbound empty account is SAFE_WITH_LIMITATIONS. Unowned exposure or unresolved
+ownership is UNSAFE for shared-strategy activation. A Cobre client-ID prefix is
+only an inference; otherwise the connection to Cobre Alpha remains unknown.
+Boolean capability fields are true only when verified. False can mean unavailable
+or not verified: inspect each probe's status and HTTP code. Empty weekend data
+and quote freshness are separate from endpoint accessibility. No entitlement probe
+buys data or silently substitutes IEX for SIP.
+
 ```sh
 python -m trading_runtime.cli connectivity
 python -m trading_runtime.cli inventory

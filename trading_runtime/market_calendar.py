@@ -33,6 +33,11 @@ def get_session(broker, day):
     if len(rows) != 1 or str(rows[0]["date"]) != str(day):
         raise SafetyError("INVALID_CALENDAR")
     row = rows[0]
+    return session_from_row(row)
+
+
+def session_from_row(row):
+    day = str(row["date"])
 
     def local_time(value):
         # raw Alpaca calendar uses HH:MM; SDK models may use datetime.

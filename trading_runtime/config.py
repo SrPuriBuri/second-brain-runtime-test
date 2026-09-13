@@ -15,6 +15,9 @@ SECRET_NAMES = (
     "DISCORD_WEBHOOK_URL",
     "ALPACA_LIVE_API_KEY",
     "ALPACA_LIVE_SECRET_KEY",
+    "Alpaca_API_KEY",
+    "Alpaca_Secret_KEY",
+    "SECOND_BRAIN_PRIVATE_REPO_TOKEN",
 )
 
 
