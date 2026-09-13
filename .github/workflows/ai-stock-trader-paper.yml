@@ -8,9 +8,6 @@ on:
         type: choice
         default: dry-run
         options: [dry-run, validate-paper, connectivity, inventory, research, reconcile, slot-status, scheduled, report]
-  schedule:
-    # Includes 08:10 Madrid in both seasons; session logic decides actual work.
-    - cron: '*/15 5-22 * * 1-5'
 
 permissions:
   contents: read
@@ -22,7 +19,7 @@ concurrency:
 jobs:
   research:
     # Phase 2 is manual. Publishing this workflow must not start recurring research.
-    if: github.event_name == 'workflow_dispatch' || vars.AI_STOCK_TRADER_RESEARCH_SCHEDULE_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

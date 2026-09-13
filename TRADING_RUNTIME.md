@@ -47,10 +47,10 @@ The original Paper-specific secret names remain fallbacks. For private persisten
 used by the social workflow. Python still reads only the Paper-specific broker
 environment names; the secret aliases cannot choose another endpoint.
 
-Publication and dispatch require authorization. Phase 2 defaults to manual runs;
-the scheduled job is skipped unless the repository variable
-`AI_STOCK_TRADER_RESEARCH_SCHEDULE_ENABLED` is explicitly set to `true` later.
-Do not set it merely to validate connectivity. `scripts/trading_safe_run.py`
+Publication and dispatch require authorization. Phase 2 has only a manual trigger;
+there is no scheduled trigger. Before broker access and again after the reads and
+private persistence, validation requires kill switch enabled, strategy not tradable,
+and an explicit `execution_ready: false`. `scripts/trading_safe_run.py`
 captures output in memory and checks it against configured secret values before
 anything is printed to the job log. It emits a fixed failure code instead of
 leaking a matching credential.

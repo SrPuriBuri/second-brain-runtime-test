@@ -236,18 +236,30 @@ def calendar_inventory(broker, now, schedule):
     }
 
 
+def assert_validation_safety(store):
+    strategy = store.read_strategy()
+    switch = store.read_kill_switch()
+    readiness = store.required("state/readiness.json").json()
+    if (
+        strategy.tradable is not False
+        or switch.enabled is not True
+        or readiness.get("execution_ready") is not False
+    ):
+        raise SafetyError("PHASE2_SAFETY_STATE_INVALID")
+    return {
+        "strategy_tradable": False,
+        "kill_switch_enabled": True,
+        "execution_ready": False,
+    }
+
+
 def run_diagnostics(broker, data, store, now, env=None):
     """Persist only genuine observations; never bind ownership or enable execution."""
     env = os.environ if env is None else env
-    broker.verify_paper()
+    effective_paper_url = broker.verify_paper()
+    safety_before = assert_validation_safety(store)
     account = broker.inspect_account()
-    strategy, switch, policy = (
-        store.read_strategy(),
-        store.read_kill_switch(),
-        store.read_policy(),
-    )
-    if strategy.tradable or not switch.enabled:
-        raise SafetyError("PHASE2_SAFETY_STATE_INVALID")
+    policy = store.read_policy()
     schedule = store.required("routines/schedule.json").json()
     rid = "connectivity_" + now.strftime("%Y%m%dT%H%M%S") + "_" + uuid4().hex[:12]
     path = ROOT + f"data/evidence/{rid}.json"
@@ -257,6 +269,9 @@ def run_diagnostics(broker, data, store, now, env=None):
         "timestamp": now.isoformat(),
         "mode": "PAPER_ONLY",
         "paper_verified": True,
+        "effective_broker_url": effective_paper_url,
+        "validation_mode": "READ_ONLY",
+        "safety_before": safety_before,
         "account": {
             "status": account["status"]
             if account["status"] in {item.value for item in AccountStatus}
@@ -268,9 +283,11 @@ def run_diagnostics(broker, data, store, now, env=None):
             "account_blocked": bool(account.get("account_blocked")),
         },
         "orders_submitted": 0,
+        "orders_cancelled": 0,
+        "positions_closed": 0,
         "broker_mutations": 0,
-        "strategy_tradable": strategy.tradable,
-        "kill_switch_enabled": switch.enabled,
+        "strategy_tradable": False,
+        "kill_switch_enabled": True,
         "execution_ready": False,
         "errors": [],
     }
@@ -414,13 +431,19 @@ def run_diagnostics(broker, data, store, now, env=None):
         else "ATTENTION_REQUIRED",
         "dry-run": report["dry_run"]["status"],
     }
+    broker.verify_paper()
+    report["safety_after_reads"] = assert_validation_safety(store)
     report = clean_document(report, env)
     store.create_append_only_record(path, report)
 
     def update(latest):
+        assert_validation_safety(store)
+        if latest.get("execution_ready") is not False:
+            raise SafetyError("PHASE2_SAFETY_STATE_INVALID")
         if latest.get("updated_at") and aware(latest["updated_at"]) > now:
             raise SafetyError("READINESS_NEWER_THAN_DIAGNOSTIC")
         return {**latest, **report["readiness"]}
 
     store.merge_projection("state/readiness.json", update)
+    assert_validation_safety(store)
     return report

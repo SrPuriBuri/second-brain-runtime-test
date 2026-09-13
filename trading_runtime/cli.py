@@ -6,7 +6,7 @@ import os
 
 from .alpaca_client import PaperAlpaca
 from .config import Config, SafetyError, redact
-from .diagnostics import run_diagnostics
+from .diagnostics import assert_validation_safety, run_diagnostics
 from .market_data import MarketData
 from .notify import notify
 from .private_store import PrivateRepoStore
@@ -61,6 +61,8 @@ def main(argv=None):
             print(json.dumps(dry_run()))
             return 0
         config = Config.from_env()
+        if args.command in {"inventory", "validate-paper"}:
+            assert_validation_safety(PrivateRepoStore(config.pat))
         broker = PaperAlpaca(config)
         now = utc_now()
         if args.command == "connectivity":

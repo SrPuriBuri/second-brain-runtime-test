@@ -36,7 +36,10 @@ class DiagnosticBroker(FakeAlpaca):
 @pytest.fixture
 def setup_diagnostic():
     store, github = simulation_store()
-    github.seed("state/readiness.json", {"phase": 1, "execution_enabled": False})
+    github.seed(
+        "state/readiness.json",
+        {"phase": 1, "execution_enabled": False, "execution_ready": False},
+    )
     broker = DiagnosticBroker()
     requests = []
 
@@ -257,6 +260,34 @@ def test_diagnostic_refuses_changed_safety_authority(setup_diagnostic):
     assert not broker.submissions
 
 
+@pytest.mark.parametrize(
+    "readiness", [{}, {"execution_ready": True}, {"execution_ready": 0}]
+)
+def test_diagnostic_requires_explicit_disabled_readiness(setup_diagnostic, readiness):
+    broker, data, store, github, requests = setup_diagnostic
+    github.seed("state/readiness.json", readiness)
+    with pytest.raises(SafetyError, match="PHASE2_SAFETY_STATE_INVALID"):
+        run_diagnostics(broker, data, store, NOW, {})
+    assert not requests and not github.writes
+
+
+def test_safety_change_during_reads_aborts_before_persistence(
+    setup_diagnostic, monkeypatch
+):
+    broker, data, store, github, _ = setup_diagnostic
+    original = broker.assets
+
+    def change_readiness():
+        github.seed("state/readiness.json", {"execution_ready": True})
+        return original()
+
+    monkeypatch.setattr(broker, "assets", change_readiness)
+    with pytest.raises(SafetyError, match="PHASE2_SAFETY_STATE_INVALID"):
+        run_diagnostics(broker, data, store, NOW, {})
+    assert not github.writes
+    assert not broker.submissions and not broker.cancellations and not broker.closures
+
+
 def test_workflow_maps_user_secret_names_without_changing_runtime_env():
     from pathlib import Path
 
@@ -268,7 +299,8 @@ def test_workflow_maps_user_secret_names_without_changing_runtime_env():
     assert "ALPACA_PAPER_SECRET_KEY: ${{ secrets.Alpaca_Secret_KEY" in text
     assert "secrets.SECOND_BRAIN_PRIVATE_REPO_TOKEN" in text
     assert "validate-paper" in text
-    assert "AI_STOCK_TRADER_RESEARCH_SCHEDULE_ENABLED" in text
+    assert "  schedule:" not in text
+    assert "github.event_name == 'workflow_dispatch'" in text
     assert "trading_safe_run.py" in text
 
 
