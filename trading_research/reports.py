@@ -29,6 +29,8 @@ def persist(store, name, report):
         raise SafetyError("RESEARCH_PATH_FORBIDDEN")
     safety(store)
     clean = json.loads(redact(json.dumps(report, allow_nan=False)))
+    if len(json.dumps(clean, indent=2).encode("utf-8")) > 900000:
+        raise SafetyError("RESEARCH_RECORD_TOO_LARGE")
     path = ROOT + "data/evidence/research-v1/" + name + ".json"
     store.create_append_only_record(path, clean)
     safety(store)

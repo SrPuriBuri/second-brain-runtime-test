@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: Manual historical data audit; no trading
+        description: Manual historical audit or preregistered simulation; no trading
         type: choice
         default: data-audit
-        options: [data-audit]
+        options: [data-audit, run-all]
 permissions:
   contents: read
 concurrency:

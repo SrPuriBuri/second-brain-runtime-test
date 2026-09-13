@@ -3,7 +3,9 @@
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
 import time
 
 import httpx
@@ -69,8 +71,13 @@ class HistoricalSource:
                 if response.status_code != 200:
                     raise SafetyError("HISTORY_HTTP_" + str(response.status_code))
                 body = response.json()
-                with gzip.open(file, "wt", encoding="utf-8") as handle:
-                    json.dump(body, handle)
+                with tempfile.NamedTemporaryFile(
+                    dir=self.cache, suffix=".partial", delete=False
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                with gzip.open(temporary_path, "wt", encoding="utf-8") as handle:
+                    json.dump(body, handle, allow_nan=False)
+                os.replace(temporary_path, file)
                 break
             else:
                 raise SafetyError("HISTORY_TRANSPORT_FAILED")

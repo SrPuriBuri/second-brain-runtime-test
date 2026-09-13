@@ -90,7 +90,7 @@ Inspect the private `state/current-state.json`, follow its `handoff` path, then 
 
 Alpaca calendar/clock supply market dates and early-close hours. PREP is open−45m; FIRST_SCAN open+60m; LAST_NEW_TRADE open+150m; MANAGE close−120m; FORCE_FLAT close−45m; RECONCILE close−15m; POST_CLOSE_REPORT close+15m. Morning research is 08:10 Europe/Madrid and informational only. Times render in America/New_York and Europe/Madrid, including weeks when DST transitions differ.
 
-Cron wakes every 15 minutes in a broad weekday UTC window. Runtime due windows are 20 minutes, and entries stop at FORCE_FLAT even on early-close days. Workflow concurrency covers all commands. Durable atomic claims are per date/slot, independent of strategy version; the human run ID includes strategy version. Ordinary no-ops neither notify nor write private state. A repeated slot is never replayed automatically.
+Scheduling logic supports 20-minute due windows, but no scheduled workflow trigger is deployed. Entries stop at FORCE_FLAT even on early-close days. Workflow concurrency covers trading and manual historical research commands. Durable atomic claims are per date/slot, independent of strategy version; the human run ID includes strategy version. Ordinary no-ops neither notify nor write private state. A repeated slot is never replayed automatically.
 
 A crash leaves the claim and pre-submission intent. Reconcile exact `aist-` client IDs and broker bracket children before taking any recovery action. A missing acknowledgment is not proof of failed submission. Unknown intent or identity mismatch blocks execution. Do not delete an intent or rerun under a different ID to bypass a failed run. Read-only manual reconcile/report can recover visibility. A later operator-reviewed recovery procedure must reconcile and deliberately release/replace a claim; no automatic lock expiry is provided.
 
@@ -104,7 +104,7 @@ The simulated force-flat lifecycle reconciles, cancels only verified project ord
 
 Kill switch starts enabled. Only the user may explicitly authorize a later manual release in the private repo, with `[skip ci]`; runtime cannot edit it. To enable Paper later: research and freeze exact rules, implement a deterministic versioned strategy qualifier, verify dedicated-account/broker ownership and bracket/partial-fill recovery, build a reliable exit watchdog, review the production mutation implementation, test read-only connectivity, then obtain explicit user authorization. Merely editing tradable or an environment variable cannot enable Phase 1 orders. Live trading is never a next mode.
 
-Disable automation via the public Actions workflow's Disable workflow action and enable/retain the private kill switch. This implementation has not been pushed, so its new schedule is not deployed. Do not trigger private Actions. To verify a future submitted Paper order, select Paper in Alpaca, inspect Orders for the journal's exact `aist-` client ID, compare broker order/leg IDs, fills and quantity with private evidence, then run read-only reconciliation. Never submit an extra order as a connectivity test.
+Retain the private kill switch. Phase 2 was published and validated in public run 34758395494; no scheduled trading trigger is deployed. Do not trigger private Actions. To verify a future submitted Paper order, select Paper in Alpaca, inspect Orders for the journal's exact `aist-` client ID, compare broker order/leg IDs, fills and quantity with private evidence, then run read-only reconciliation. Never submit an extra order as a connectivity test.
 
 ## Notifications and limitations
 
@@ -112,6 +112,11 @@ Console/job summary always works. Telegram activates only with both `TELEGRAM_BO
 
 Basic/IEX is the default. SIP 401/403 requests fall back to IEX with provenance; IEX data is never described as consolidated SIP. The shortlist filters at most 50 configured seeds from active/tradable US assets and returns up to the configured 5–15 target; insufficient eligible candidates remain fewer. Liquidity is previous-daily feed-specific dollar volume, not consolidated ADV. News is bounded and optional. Movers/most-active discovery is not needed in v0. Leveraged/inverse detection combines explicit exclusions and asset names; it is not a complete fund taxonomy and needs review before activation.
 
-Production execution, account binding, notifications and real Paper connectivity remain unvalidated. Whole-share sizing is intentional for the future limit-bracket lifecycle. Open/pending risk is conservative and does not assume profitable exits replenish loss budget; it is an estimate, not a guaranteed loss ceiling. Corporate actions and complex shared-account history need additional validation. GitHub scheduled workflows are best-effort and cannot guarantee no overnight exposure; a reliable exit watchdog is a prerequisite for enabling Paper execution.
+Real Paper connectivity, IEX, news and current screeners were verified in Phase 2; recent SIP requests were denied. Production execution, account binding and notifications remain unvalidated. Whole-share sizing is intentional for the future limit-bracket lifecycle. Open/pending risk is conservative and does not assume profitable exits replenish loss budget; it is an estimate, not a guaranteed loss ceiling. Corporate actions and complex shared-account history need additional validation. GitHub scheduled workflows are best-effort and cannot guarantee no overnight exposure; a reliable exit watchdog is a prerequisite for enabling Paper execution.
+
+Phase 3 adds an isolated [historical research harness](trading_research/README.md),
+with canonical private preregistration and sealed OOS. It has no broker execution
+imports or mutation capability. Historical jobs require explicit launch authorization;
+software test success does not establish a strategy edge.
 
 Alpaca references checked during implementation: [calendar including early closes](https://alpaca.markets/sdks/python/api_reference/trading/calendar.html), [orders, brackets and client IDs](https://docs.alpaca.markets/us/docs/orders-at-alpaca), [market-data feeds](https://docs.alpaca.markets/us/docs/market-data-faq).
