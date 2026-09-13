@@ -7,11 +7,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from trading_runtime.cli import main  # noqa: E402
 from trading_runtime.config import SECRET_NAMES, redact  # noqa: E402
 
 
-def guarded_run(argv, env=None, run=main):
+def guarded_run(argv, env=None, run=None):
+    if run is None:
+        from trading_runtime.cli import main
+
+        run = main
     env = os.environ if env is None else env
     captured = StringIO()
     with redirect_stdout(captured), redirect_stderr(captured):

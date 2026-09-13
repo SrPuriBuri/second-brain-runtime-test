@@ -6,3 +6,5 @@ __pycache__/
 .env.*
 *.pyc
 trading-output/
+.research-cache/
+research-output/
