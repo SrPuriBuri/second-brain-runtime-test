@@ -42,3 +42,7 @@ youtube-transcript-api fails
 For unusually difficult videos, temporarily reduce concurrency and increase the per-source timeout, process small batches, then restore normal throughput. See the private project's `docs/RUNTIME_OPERATING_MODEL.md` for the durable operating rules.
 
 The active workflow is `.github/workflows/private-evidence-bridge.yml`.
+
+## AI Stock Trader Paper research
+
+The isolated `trading_runtime/` package and `ai-stock-trader-paper.yml` workflow implement a research-only trading laboratory. Canonical policy, strategy and evidence remain in the private repository. Phase 1 blocks all production order mutations. See [TRADING_RUNTIME.md](TRADING_RUNTIME.md) for setup, offline simulation, ownership isolation and operating procedures.

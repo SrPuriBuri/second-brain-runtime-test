@@ -1,0 +1,48 @@
+name: AI Stock Trader Paper Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Safe Phase 1 operation
+        type: choice
+        default: dry-run
+        options: [dry-run, connectivity, inventory, research, reconcile, slot-status, scheduled, report]
+  schedule:
+    # Includes 08:10 Madrid in both seasons; session logic decides actual work.
+    - cron: '*/15 5-22 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-stock-trader-paper
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: trading-runtime-requirements.txt
+      - name: Install isolated trading dependencies
+        run: python -m pip install -r trading-runtime-requirements.txt
+      - name: Run research-only runtime
+        env:
+          TRADING_COMMAND: ${{ inputs.command || 'scheduled' }}
+          ALPACA_PAPER_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_PAPER_SECRET_KEY: ${{ secrets.ALPACA_PAPER_SECRET_KEY }}
+          SECOND_BRAIN_PAT: ${{ secrets.SECOND_BRAIN_PAT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SECOND_BRAIN_TRADING_AI_PROVIDER: no_ai
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python -m trading_runtime.cli "$TRADING_COMMAND"
