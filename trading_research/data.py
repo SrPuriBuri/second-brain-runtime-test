@@ -128,7 +128,13 @@ class HistoricalSource:
                     {
                         "start": start,
                         "end": end,
-                        "status": "AVAILABLE",
+                        "status": (
+                            "AVAILABLE"
+                            if all(rows.values())
+                            else "PARTIAL"
+                            if any(rows.values())
+                            else "EMPTY"
+                        ),
                         "symbols": {
                             s: {
                                 "count": len(b),

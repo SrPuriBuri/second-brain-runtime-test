@@ -7,11 +7,15 @@ No account, position, order, live, cancellation or execution method exists here.
 
 ## Current result
 
-Harness implemented and covered by synthetic software tests. **No authenticated
-historical audit/backtest has run in Phase 3**: automatic approval rejected the
-manual historical launch and requires explicit renewed authorization. No strategy
-edge, empirical rejection or OOS performance is claimed. Do not confuse a passing
-test with a profitable strategy. Existing Phase 1/2 safety tests are unchanged.
+V1 historical audit and preregistered research completed. Decision: **NO_GO**;
+no candidate qualified to open validation or OOS. Canonical metrics, source coverage,
+failed trials and limitations remain private. Existing Phase 1/2 safety tests are
+unchanged; the combined relevant suite has 144 passing tests. No Paper activation.
+
+Results were computed on `c7f86b10dfa3219e5a73552c88fa571d246dcc84`. A subsequent
+audit-label correction distinguishes empty responses from available historical bars;
+it does not change strategy calculations and did not trigger a repeated research run.
+Local JSON/cache outputs finalize atomically; `.partial` files are never valid results.
 
 ## Manual cloud run
 
@@ -23,7 +27,7 @@ test with a profitable strategy. Existing Phase 1/2 safety tests are unchanged.
   IEX 5Min raw bars and calendar, audits data, evaluates development and validation,
   writes selection evidence, and opens OOS once **only if a candidate passes**.
 
-Both require separate launch authorization accepted by approval review. The new
+Run manually only within explicitly authorized research scope. The
 workflow shares the existing trading concurrency group, has a 30-minute timeout,
 uses current secrets, no paid dependencies, no scheduled trigger and no private
 Actions. It does not change strategy, policy, readiness, kill switch or ownership.

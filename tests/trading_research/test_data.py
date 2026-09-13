@@ -32,6 +32,17 @@ def test_only_allowlisted_get_and_iex(tmp_path):
     assert source.receipts[0] == source.receipts[1]
 
 
+def test_audit_does_not_label_empty_history_available(tmp_path, monkeypatch):
+    source = HistoricalSource(Config("synthetic", "synthetic"), tmp_path)
+    monkeypatch.setattr(source, "bars", lambda *args: {"SPY": [], "QQQ": []})
+    monkeypatch.setattr(
+        source, "get", lambda route, params: [] if route == "calendar" else {"news": []}
+    )
+    report = source.audit_access()
+    assert all(probe["status"] == "EMPTY" for probe in report["probes"])
+    assert report["strategy_returns_computed"] is False
+
+
 def test_pagination_follows_short_page_and_rejects_cycle(tmp_path):
     def handler(request):
         return httpx.Response(
