@@ -85,7 +85,7 @@ def apply_symbol_change(old, event):
         old.security_type,
         known,
         event["source_record_id"],
-        True,
+        old.delisted,
     )
     opened = ListingInterval(
         old.security_id,

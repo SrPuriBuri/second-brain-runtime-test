@@ -314,6 +314,8 @@ def test_pit_symbol_change_preserves_prior_vintage():
         ),
     )
     records = [old, closed, opened]
+    # Closing a ticker alias does not mean the continuing security is delisted.
+    assert closed.delisted is False and opened.security_id == old.security_id
     assert universe_at(records, "2020-01-01T15:00:00Z", True) == (old,)
     assert universe_at(records, "2022-06-08T15:00:00Z", True) == (closed,)
     assert universe_at(records, "2022-06-09T15:00:00Z", True) == (opened,)
