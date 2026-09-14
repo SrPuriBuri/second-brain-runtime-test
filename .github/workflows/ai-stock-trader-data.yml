@@ -1,0 +1,27 @@
+name: AI Stock Trader Data Foundation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-stock-trader-paper
+  cancel-in-progress: false
+jobs:
+  data-foundation:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r trading-runtime-requirements.txt
+      - name: Audit historical data only and persist compact private evidence
+        env:
+          ALPACA_PAPER_API_KEY: ${{ secrets.Alpaca_API_KEY || secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_PAPER_SECRET_KEY: ${{ secrets.Alpaca_Secret_KEY || secrets.ALPACA_PAPER_SECRET_KEY }}
+          SECOND_BRAIN_PAT: ${{ secrets.SECOND_BRAIN_PAT || secrets.SECOND_BRAIN_PRIVATE_REPO_TOKEN }}
+        run: python scripts/trading_foundation_safe_run.py
