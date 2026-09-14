@@ -39,7 +39,9 @@ class AlpacaFoundationProvider:
         ),
     )
 
-    def __init__(self, config, cache, client=None, pause=time.sleep):
+    def __init__(
+        self, config, cache, client=None, pause=time.sleep, request_budget=250
+    ):
         verify_paper_url(PAPER_URL)
         self.headers = {
             "APCA-API-KEY-ID": config.key,
@@ -51,6 +53,9 @@ class AlpacaFoundationProvider:
         self.cache, self.pause = cache, pause
         self.requests, self.receipts, self.snapshots, self.memo = 0, [], [], {}
         self.action_version = "NOT_YET_AUDITED"
+        if not 1 <= request_budget <= 20000:
+            raise SafetyError("FOUNDATION_REQUEST_BUDGET_INVALID")
+        self.request_budget = request_budget
 
     def get(self, route, params):
         if route not in ROUTES:
@@ -68,7 +73,7 @@ class AlpacaFoundationProvider:
         if identity in self.memo:
             return self.memo[identity]
         for attempt in range(3):
-            if self.requests >= 250:
+            if self.requests >= self.request_budget:
                 raise SafetyError("FOUNDATION_REQUEST_BUDGET")
             self.pause(1 if attempt == 0 else 2**attempt)
             self.requests += 1
@@ -77,11 +82,17 @@ class AlpacaFoundationProvider:
                     ROUTES[route], params=params, headers=self.headers
                 )
             except httpx.HTTPError:
+                self.receipts.append(
+                    {
+                        "request_hash": identity,
+                        "route": route,
+                        "http_status": 0,
+                        "attempt": attempt + 1,
+                    }
+                )
                 if attempt < 2:
                     continue
                 raise SafetyError("FOUNDATION_TRANSPORT_ERROR") from None
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
-                continue
             self.receipts.append(
                 {
                     "request_hash": identity,
@@ -89,6 +100,8 @@ class AlpacaFoundationProvider:
                     "http_status": response.status_code,
                 }
             )
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                continue
             if response.status_code != 200:
                 raise SafetyError("FOUNDATION_HTTP_" + str(response.status_code))
             body = response.json()
