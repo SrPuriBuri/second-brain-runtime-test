@@ -380,7 +380,14 @@ def test_data_only_modules_have_no_strategy_or_mutation_imports():
         "cli",
         "reconcile",
     }
-    for name in ["archive", "downloader", "coverage", "restore", "dataset_cli"]:
+    for name in [
+        "archive",
+        "downloader",
+        "coverage",
+        "restore",
+        "dataset_cli",
+        "finalization",
+    ]:
         tree = ast.parse((base / (name + ".py")).read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -516,3 +523,118 @@ def test_multisymbol_multiyear_restore_with_actions(tmp_path):
         and result["bar_chunks"] == 4
     )
     assert result["corporate_actions"] == 1 and result["result"] == "RESTORE_PASS"
+
+
+def test_completed_lineage_audit_and_rehashed_divergence(archive):
+    from trading_research.finalization import verify_completed
+
+    Downloader(archive, provider(archive, handler), PERMITTED).run()
+    audit = verify_completed(archive)
+    assert audit["result"] == "INTEGRITY_PASS"
+    assert audit["symbols"]["SPY"]["canonical"]["rows"] == 156
+    index = archive.index()
+    key, ref = next(iter(index["chunks"].items()))
+    value = archive.read_object(ref)
+    value["rows"][0]["v"] = "51"
+    index["chunks"][key] = archive.save_object("market", key, value)
+    archive.checkpoint(index)
+    with pytest.raises(SafetyError, match="NATIVE_CANONICAL_LINEAGE"):
+        verify_completed(archive)
+
+
+def test_rejected_archive_can_only_be_sealed_as_ineligible_evidence(archive):
+    Downloader(archive, provider(archive, handler), PERMITTED).run()
+    quality = audit_archive(archive, {})
+    calendar, actions, _ = offline_references(archive)
+    with pytest.raises(SafetyError, match="QUALITY"):
+        archive.freeze({"symbols": ["SPY"]}, calendar, actions, quality, "fixture")
+    snapshot = archive.preserve_evidence(
+        {"symbols": ["SPY"]}, calendar, actions, quality, "fixture"
+    )
+    restored = verify_snapshot(snapshot)
+    assert restored["result"] == "RESTORE_PASS"
+    assert restored["state"] == "FROZEN_EVIDENCE_ONLY"
+    assert restored["research_eligible"] is False
+    quality["strategy_return_calculations"] = 1
+    with pytest.raises(SafetyError, match="SAFETY"):
+        archive.preserve_evidence(
+            {"symbols": ["SPY"]}, calendar, actions, quality, "fixture"
+        )
+
+
+def test_checkpoint_reference_hash_must_match(archive):
+    Downloader(archive, provider(archive, handler), PERMITTED).run()
+    ref = next(iter(archive.index()["chunks"].values()))
+    ref["content_sha256"] = "0" * 64
+    with pytest.raises(SafetyError, match="REFERENCE_HASH"):
+        archive.read_object(ref)
+
+
+def test_material_spinoff_requires_resolution():
+    event = dict(
+        symbol="XLF", action_type="spin_offs", source_record_id="fixture", terms={}
+    )
+    assert reconcile("XLF", [], [event])["status"] == "UNRESOLVED"
+
+
+def test_row_defect_breakdown_and_boundary():
+    from trading_research.finalization import row_defects
+
+    row = dict(t="2024-01-02T14:30:00Z", o=-1, h=2, l=3, c=1, v=-1)
+    result = row_defects([row, row])
+    assert result["duplicates"] == 1
+    assert (
+        result["invalid_prices"]
+        == result["ohlc_violations"]
+        == result["invalid_volumes"]
+        == 2
+    )
+    with pytest.raises(SafetyError, match="OOS_ROW"):
+        row_defects([{**row, "t": "2025-01-02T14:30:00Z"}])
+
+
+def test_offline_restore_launcher_in_fresh_process(archive):
+    snapshot = frozen(archive)
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts/trading_dataset_offline_restore.py"
+    )
+    output = archive.path / "restore-result.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--root",
+            str(archive.root),
+            "--dataset-id",
+            archive.plan["dataset_id"],
+            "--snapshot-id",
+            snapshot.name,
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["result"] == "RESTORE_PASS"
+    assert result["network_attempts"] == result["provider_import_attempts"] == 0
+    assert json.loads(output.read_text())["fresh_process"] is True
+
+
+def test_receipt_hash_and_missing_success_rejected():
+    from trading_research.finalization import verify_receipts
+
+    pages = {"fixture": {"content_hash": "digest"}}
+    receipt = dict(request_hash="fixture", http_status=200, content_sha256="digest")
+    assert (
+        verify_receipts({"receipts": [receipt, receipt]}, pages)[
+            "repeated_successful_requests"
+        ]
+        == 1
+    )
+    with pytest.raises(SafetyError, match="RECEIPT_HASH"):
+        verify_receipts({"receipts": [{**receipt, "content_sha256": "wrong"}]}, pages)
+    with pytest.raises(SafetyError, match="RECEIPT_MISSING"):
+        verify_receipts({"receipts": [{**receipt, "http_status": 401}]}, pages)

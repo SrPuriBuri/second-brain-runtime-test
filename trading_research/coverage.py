@@ -73,6 +73,9 @@ def reconcile(symbol, rows, actions):
             "stock_and_cash_mergers",
             "reorganizations",
             "worthless_removals",
+            "spin_offs",
+            "spinoffs",
+            "redemptions",
         }
     ]
     unresolved.extend(

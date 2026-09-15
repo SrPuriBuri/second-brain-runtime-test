@@ -1,5 +1,34 @@
 # Durable historical archive (Phase 3V2-B1)
 
+## Full local finalization and rejected evidence
+
+`python -m trading_research.finalization` verifies all completed cache references,
+native page chains, successful receipts, request bounds, native/canonical lineage,
+OHLCV defects, dated gaps and yearly coverage without creating an HTTP client.
+Its atomic `full-audit.json` stays outside Git. Reuse this report only while its
+checkpoint and plan hashes match. Do not repeat acquisition to run this audit.
+
+`Archive.freeze()` retains the original quality/identity acceptance gate.
+`Archive.preserve_evidence()` separately seals rejected observations as
+`FROZEN_EVIDENCE_ONLY` with `research_eligible=false`. This permits restoration and
+diagnosis, not research acceptance. Neither path relaxes retention, root, OOS,
+incomplete-chunk or strategy guards. Never label an evidence-only archive
+`DATASET_FROZEN` merely because its checksums pass.
+
+Fresh-process restore (no credentials needed):
+
+```powershell
+../.venv/Scripts/python.exe scripts/trading_dataset_offline_restore.py --root ../aist-data --dataset-id <dataset-id> --snapshot-id <snapshot-id> --output <outside-git-report.json>
+```
+
+The reader blocks socket/DNS access and provider/HTTP imports, verifies native and
+normalized price boundaries, every checksum, manifest and aggregate fingerprint,
+then hashes representative chunks across each symbol and early/middle/final years.
+It reports network and provider-import attempts independently of restoration status.
+No restored rows are printed. Corporate-action completeness still requires evidence:
+spin-offs and redemptions explicitly require reconciliation, even below the numeric
+discontinuity alarm threshold. No automated price repair or provider re-fetch occurs.
+
 Data engineering only. The separate `trading_research.dataset_cli` avoids importing
 the V1 strategy CLI/engine. The 14 user-proposed ETF symbols are a locked candidate
 set, not a verified frozen universe. Actual identity evidence and full coverage

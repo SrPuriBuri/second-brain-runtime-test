@@ -294,7 +294,10 @@ class Archive:
         }
 
     def read_object(self, ref):
-        return self.cache.read(ref["domain"], ref["dataset_id"], ref["snapshot_id"])
+        value = self.cache.read(ref["domain"], ref["dataset_id"], ref["snapshot_id"])
+        if sha256(value) != ref["content_sha256"]:
+            raise SafetyError("ARCHIVE_REFERENCE_HASH_MISMATCH")
+        return value
 
     def status(self):
         index = self.index()
@@ -315,14 +318,42 @@ class Archive:
         with self.writer():
             return self._freeze(universe, calendar, actions, quality, software_commit)
 
-    def _freeze(self, universe, calendar, actions, quality, software_commit):
+    def preserve_evidence(self, universe, calendar, actions, quality, software_commit):
+        """Seal rejected observations for restoration, without research approval."""
+        with self.writer():
+            return self._freeze(
+                universe,
+                calendar,
+                actions,
+                quality,
+                software_commit,
+                evidence_only=True,
+            )
+
+    def _freeze(
+        self,
+        universe,
+        calendar,
+        actions,
+        quality,
+        software_commit,
+        *,
+        evidence_only=False,
+    ):
         retention = json.loads((self.path / "retention.json").read_text())
         require_retention(retention)
         status = self.status()
         if status["completed_chunks"] != status["expected_chunks"]:
             raise SafetyError("ARCHIVE_CHUNKS_INCOMPLETE")
-        if not quality["accepted"] or quality["identity_verified"] is not True:
+        if not evidence_only and (
+            not quality["accepted"] or quality["identity_verified"] is not True
+        ):
             raise SafetyError("ARCHIVE_QUALITY_NOT_ACCEPTED")
+        if (
+            status["OOS_price_requests"] != 0
+            or quality.get("strategy_return_calculations", 0) != 0
+        ):
+            raise SafetyError("ARCHIVE_SAFETY_INVALID")
         if sorted(universe["symbols"]) != self.plan["selection"]["symbols"]:
             raise SafetyError("ARCHIVE_UNIVERSE_MISMATCH")
         index = self.index()
@@ -390,7 +421,8 @@ class Archive:
             "OOS_price_requests": status["OOS_price_requests"],
             "strategy_return_calculations": 0,
             "source_provenance": "provenance/provider_pages plus checkpoint receipts",
-            "state": "FROZEN",
+            "state": "FROZEN_EVIDENCE_ONLY" if evidence_only else "FROZEN",
+            "research_eligible": not evidence_only,
         }
         manifest["snapshot_id"] = sha256(manifest)
         atomic_json(temporary / "checksums.json", checksums)
