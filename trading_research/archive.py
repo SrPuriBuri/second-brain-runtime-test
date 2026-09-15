@@ -31,6 +31,17 @@ CORE = (
     "XLV",
     "XLY",
 )
+USER_AUTHORIZED_PRIVATE_RESEARCH = "USER_AUTHORIZED_PRIVATE_RESEARCH"
+PRIVATE_RESEARCH_SCOPE = {
+    "personal_noncommercial_research": True,
+    "private_local_storage": True,
+    "raw_data_outside_git": True,
+    "redistribution": False,
+    "raw_publication": False,
+    "resale": False,
+    "sublicense": False,
+    "public_dataset_api": False,
+}
 ACCEPTANCE = {
     "min_symbol_completeness": 0.999,
     "max_unexplained_consecutive_missing_slots": 2,
@@ -165,8 +176,15 @@ def chunks(plan):
 
 
 def require_retention(evidence):
+    user_authorized = (
+        evidence.get("status") == USER_AUTHORIZED_PRIVATE_RESEARCH
+        and evidence.get("authorization_scope") == PRIVATE_RESEARCH_SCOPE
+        and evidence.get("authorized_by") == "user"
+        and bool(evidence.get("authorized_at"))
+        and evidence.get("provider_permission_verified") is False
+    )
     if (
-        evidence.get("status") != "PERMITTED"
+        (evidence.get("status") != "PERMITTED" and not user_authorized)
         or evidence.get("provider") != "alpaca"
         or evidence.get("feed") != "sip"
         or evidence.get("private_local_retention") is not True
@@ -192,7 +210,7 @@ class Archive:
         ):
             raise SafetyError("ARCHIVE_SPEC_INVALID")
         list(chunks(plan))  # Reject a forbidden interval before writing anything.
-        self.root = filesystem_path(root)
+        self.root = filesystem_path(data_root({"AIST_DATA_ROOT": str(root)}))
         self.plan = plan
         self.path = self.root / "ai-stock-trader" / "work" / plan["dataset_id"]
         self.path.mkdir(parents=True, exist_ok=True)

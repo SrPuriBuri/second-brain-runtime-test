@@ -37,14 +37,14 @@ def local_safety(project):
         raise SafetyError("ARCHIVE_SAFETY_INVALID")
 
 
-def main(argv=None):
+def main(argv=None, *, config=None, client=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--plan", type=Path)
     parser.add_argument(
         "--retention",
         type=Path,
-        help="Reviewed, source-backed local retention evidence; no bypass switch",
+        help="Provider permission or recorded explicit private-research authorization",
     )
     parser.add_argument(
         "--identity", type=Path, help="Per-symbol issuer/exchange identity evidence"
@@ -77,9 +77,9 @@ def main(argv=None):
                     json.loads(args.retention.read_text()) if args.retention else {}
                 )
                 require_retention(retention)
-                config = Config.from_env()
+                config = config or Config.from_env()
                 provider = AlpacaFoundationProvider(
-                    config, archive.cache, request_budget=20000
+                    config, archive.cache, client=client, request_budget=20000
                 )
                 result = Downloader(archive, provider, retention).run(args.max_chunks)
             else:

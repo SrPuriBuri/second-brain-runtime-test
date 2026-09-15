@@ -23,15 +23,33 @@ python -m trading_research.dataset_cli dataset-freeze --identity <identity.json>
 python -m trading_research.dataset_cli dataset-restore-test --snapshot <frozen-directory>
 ```
 
-**Current gate: STORAGE_TERMS_UNRESOLVED.** Do not run a bulk archive until a
-source-backed review establishes permission for private local retention. A review
-record requires status=PERMITTED, provider=alpaca, feed=sip,
-private_local_retention=true, source_ref and reviewed_at. These fields record an
-actual review; they are not permission obtained by editing a flag. The CLI checks
-this before reading credentials or calling the provider. Existing GitHub secrets
-are not downloadable credentials for local execution. Once legally resolved,
-local execution needs existing Alpaca credentials supplied privately via the
-runtime environment; never put credentials in plans, command arguments or git.
+The retention gate accepts either source-backed provider permission (`PERMITTED`)
+or recorded `USER_AUTHORIZED_PRIVATE_RESEARCH` with the exact scope in
+`PRIVATE_RESEARCH_SCOPE`, user attribution and timestamp. Both require
+provider=alpaca, feed=sip, private_local_retention=true, source_ref and reviewed_at.
+The latter explicitly records provider_permission_verified=false. It permits only
+the user's private noncommercial archive outside Git: no redistribution, raw
+publication, resale, sublicense or public dataset API. Unresolved evidence without
+either authorization still blocks before credentials or HTTP. On 2026-09-15 the
+user explicitly authorized this second path; the contractual uncertainty remains
+documented. No dataset criteria, date guard or execution invariant is relaxed.
+
+Run securely in a native local terminal from this repository:
+
+```
+../.venv/Scripts/python.exe scripts/trading_dataset_local_run.py
+```
+
+The launcher uses the existing canonical plan/review and resumes up to 1,512
+pending chunks. ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY are read from the
+process environment, or entered through hidden prompts. Input never falls back
+to echo. Prompted values remain in memory; they are not exported globally, passed
+on a command line or saved. No .env is created. GitHub secrets cannot be read back.
+HTTP logs are suppressed during acquisition, arbitrary console/exception text is
+withheld, and provider responses echoing credentials are rejected before caching.
+The local-run-status.json file contains only a stable status, exit code and an
+allowlisted error code when available.
+Ctrl+C preserves all completed checkpoints. Re-running resumes pending work.
 
 The plan binds 2016-01-01–2024-12-31, SIP/5Min/raw/asof=-, objective universe
 rationale and acceptance criteria. There are 1,512 symbol-month chunks. Last
@@ -86,5 +104,6 @@ freezing reports FROZEN_PENDING_FRESH_PROCESS_RESTORE until that separate check.
 
 Private canonical persistence uses metadata-only projections and hashes. No raw
 bars, page payloads or large datasets belong in either repository. Do not report a
-real RESTORE_PASS or DATASET_FROZEN from synthetic test success. Current real
-dataset has zero acquired chunks and no finalized snapshot because of the terms gate.
+real RESTORE_PASS or DATASET_FROZEN from synthetic test success. Use dataset-status
+and durable checkpoints for actual acquisition progress; authorization alone does
+not establish data quality or finalize a snapshot.
