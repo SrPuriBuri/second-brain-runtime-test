@@ -1,4 +1,4 @@
-"""One synthetic session, one intent, one position, no broker interface."""
+"""One provenance-bound session, one intent, one position, no broker interface."""
 
 from datetime import timedelta
 
@@ -7,15 +7,15 @@ from .bindings import PINS
 from .clock import STEP, exit_boundary, fully_halted, halted, timing
 from .features import panel
 from .fills import enter, protective, exit_price, net_r
-from .models import NY, require_synthetic
+from .models import NY, require_research_session, provenance_fields
 from .signal import build_intent
 
 
 def simulate_intent(session, spec, intent, scenario):
-    require_synthetic(session)
+    require_research_session(session)
     costs = spec.base["costs"][scenario]
     at = intent["due"]
-    record = {**PINS, "source": "SYNTHETIC_GOLDEN_D1", "symbol": intent["symbol"],
+    record = {**PINS, **provenance_fields(session), "symbol": intent["symbol"],
               "session": str(session.open.astimezone(NY).date()), "scenario": scenario,
               "signal_timestamp": intent["signal_at"].isoformat(), "R": None,
               "integrity_violations": 0}
@@ -70,7 +70,7 @@ def simulate_intent(session, spec, intent, scenario):
 
 
 def simulate_session(session, spec, variant="CSLC_L30", scenario="BASELINE", *, delay_diagnostic=False, control=False):
-    require_synthetic(session)
+    require_research_session(session)
     if scenario not in spec.base["costs"]:
         raise SafetyError("D1_COST_SCENARIO")
     if (control or delay_diagnostic) and variant != spec.base["selection"]["canonical_id"]:
@@ -85,7 +85,7 @@ def simulate_session(session, spec, variant="CSLC_L30", scenario="BASELINE", *, 
     if intent is not None and control:
         intent, reason = build_intent(features, session, spec, delay, control=True)
     if intent is None:
-        return {**PINS, "source": "SYNTHETIC_GOLDEN_D1", "session": str(session.open.date()),
+        return {**PINS, **provenance_fields(session), "session": str(session.open.date()),
                 "status": "NO_SIGNAL", "reason": reason, "R": None,
                 "variant": variant, "scenario": scenario, "integrity_violations": 0,
                 "record_type": "TIME_MATCHED_SPY" if control else "DELAY_DIAGNOSTIC" if delay_diagnostic else "STRATEGY"}
@@ -96,6 +96,6 @@ def simulate_session(session, spec, variant="CSLC_L30", scenario="BASELINE", *, 
 def no_trade(sessions):
     sessions = tuple(sessions)
     for session in sessions:
-        require_synthetic(session)
-    return [{**PINS, "source": "SYNTHETIC_GOLDEN_D1", "session": str(s.open.date()),
+        require_research_session(session)
+    return [{**PINS, **provenance_fields(s), "session": str(s.open.date()),
              "status": "NO_TRADE", "daily_R": 0.0, "R": None} for s in sessions]

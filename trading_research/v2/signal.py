@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from .fills import risk_prices
+from .models import provenance_fields
 
 
 def build_intent(panel, session, spec, delay, *, control=False):
@@ -26,5 +27,5 @@ def build_intent(panel, session, spec, delay, *, control=False):
     if prices is None:
         return None, "NO_SIGNAL_RISK"
     stop, target = prices
-    return {"symbol": symbol, "signal_at": panel["at"], "due": due,
+    return {**provenance_fields(session), "symbol": symbol, "signal_at": panel["at"], "due": due,
             "stop": stop, "target": target, "feature": f}, None

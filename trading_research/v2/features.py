@@ -6,7 +6,7 @@ import math
 from trading_research.v2_protocol import UNIVERSE
 from trading_runtime.config import SafetyError
 from .clock import STEP, overlap_seconds, fully_halted
-from .models import NY, require_synthetic
+from .models import NY, require_research_session, provenance_fields
 
 
 def median13(values):
@@ -24,7 +24,7 @@ def dispersion(moves, normalization):
 
 
 def panel(session, spec, variant):
-    require_synthetic(session)
+    require_research_session(session)
     base = spec.base
     variants = {v["id"]: v for v in base["hypotheses"][0]["variants"]}
     if variant not in variants:
@@ -76,4 +76,4 @@ def panel(session, spec, variant):
     turn_median = median13(list(turns.values()))
     for symbol in UNIVERSE:
         result[symbol].update(move=moves[symbol], z=zs[symbol], relative_turn=turns[symbol] - turn_median)
-    return {"at": at, "median": median, "mad": mad, "symbols": result}, None
+    return {**provenance_fields(session), "at": at, "median": median, "mad": mad, "symbols": result}, None

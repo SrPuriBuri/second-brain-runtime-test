@@ -1,4 +1,4 @@
-"""Append-only, hash-chained synthetic D1 trials and frozen future trial identities.
+"""Append-only, hash-chained provenance-bound trials and frozen slot identities.
 
 No stage execution lives here. An interrupted atomic event temporary is ignored;
 committed events are checked as a complete consecutive chain before every append.
@@ -13,6 +13,7 @@ import uuid
 
 from trading_runtime.config import SafetyError
 from .bindings import PINS, canonical, digest, read_json, require_pins
+from .provenance import Provenance, require_provenance, require_fixture_kind, exposure_count
 
 SOURCE = "SYNTHETIC_GOLDEN_D1"
 HASH_FIELDS = ("implementation_hash", "execution_config_hash", "dependency_fingerprint",
@@ -48,7 +49,11 @@ def slot_of(value):
     return tuple(value.get(k) for k in ("stage", "variant", "cost_scenario", "record_type", "delay_minutes", "subperiod"))
 
 
-def trial_identity(value, spec):
+def trial_identity(value, spec, *, provenance=Provenance.SYNTHETIC, fixture_kind=None):
+    mode = require_provenance(provenance, stage=value.get("stage"))
+    require_fixture_kind(fixture_kind)
+    if value.get("provenance", mode.value) != mode.value or value.get("fixture_kind", fixture_kind) != fixture_kind:
+        raise SafetyError("D1R_TRIAL_PROVENANCE_MISMATCH")
     require_pins(value)
     for key in HASH_FIELDS:
         if not isinstance(value.get(key), str) or re.fullmatch(r"[0-9a-f]{64}", value[key]) is None:
@@ -66,15 +71,22 @@ def trial_identity(value, spec):
     keys = (*PINS, *HASH_FIELDS, "family", "variant", "stage", "cost_scenario",
             "record_type", "delay_minutes", "subperiod", "seed", "purpose")
     identity = {k: value.get(k) for k in keys}
+    identity.update(provenance=mode.value, fixture_kind=fixture_kind)
     return digest(identity), identity
 
 
 class Ledger:
-    """D1 writes synthetic attempts only; opening real stages needs later authorization."""
+    """One provenance namespace per ledger; historical slots are development only."""
 
-    def __init__(self, directory, spec):
+    def __init__(self, directory, spec, *, provenance=Provenance.SYNTHETIC, fixture_kind=None):
         self.directory = Path(directory)
         self.spec = spec
+        self._provenance = require_provenance(provenance, stage="development")
+        self.fixture_kind = require_fixture_kind(fixture_kind)
+
+    @property
+    def provenance(self):
+        return self._provenance
 
     @contextmanager
     def _lock(self):
@@ -98,17 +110,24 @@ class Ledger:
             expected = digest({k: v for k, v in event.items() if k != "event_hash"})
             if (path.name != f"event-{index:08d}.json" or event.get("sequence") != index
                     or event.get("previous_event_hash") != previous or event.get("event_hash") != expected
-                    or event.get("source") != SOURCE):
+                    or event.get("source") != self.provenance.value
+                    or event.get("fixture_kind") != self.fixture_kind
+                    or event.get("ledger_schema_version") != 2):
                 raise SafetyError("D1_LEDGER_CORRUPT")
+            exposure_count(self.provenance, event.get("historical_price_rows_exposed"))
             require_pins(event)
-            if trial_identity(event["identity"], self.spec)[0] != event["trial_id"]:
+            if trial_identity(event["identity"], self.spec, provenance=self.provenance,
+                              fixture_kind=self.fixture_kind)[0] != event["trial_id"]:
                 raise SafetyError("D1_LEDGER_CORRUPT")
             result.append(event)
             previous = expected
         return result
 
     def _append(self, events, body):
-        event = {**PINS, **body, "source": SOURCE, "sequence": len(events),
+        event = {**PINS, **body, "source": self.provenance.value,
+                 "fixture_kind": self.fixture_kind, "ledger_schema_version": 2,
+                 "exposure_accounting_scope": self.fixture_kind or "ACTUAL_EXECUTION",
+                 "sequence": len(events),
                  "previous_event_hash": events[-1]["event_hash"] if events else None}
         event["event_hash"] = digest(event)
         target = self.directory / f"event-{len(events):08d}.json"
@@ -126,10 +145,12 @@ class Ledger:
             raise SafetyError("D1_LEDGER_WRITE")
         return event
 
-    def begin(self, value, *, source):
-        if source != SOURCE:
+    def begin(self, value, *, source, historical_price_rows_exposed=None):
+        mode = require_provenance(source, stage=value.get("stage"))
+        if mode is not self.provenance:
             raise SafetyError("D1_REAL_DATA_FORBIDDEN")
-        trial_id, identity = trial_identity(value, self.spec)
+        count = exposure_count(mode, historical_price_rows_exposed)
+        trial_id, identity = trial_identity(value, self.spec, provenance=mode, fixture_kind=self.fixture_kind)
         with self._lock():
             events = self.read()
             trials = {e["trial_id"]: e["identity"] for e in events if e["status"] == "ATTEMPT_STARTED"}
@@ -142,9 +163,10 @@ class Ledger:
             attempt = sum(e["trial_id"] == trial_id and e["status"] == "ATTEMPT_STARTED" for e in events) + 1
             return self._append(events, {"trial_id": trial_id, "identity": identity,
                                        "attempt": attempt, "status": "ATTEMPT_STARTED",
-                                       "historical_exposure": 0})
+                                       "historical_price_rows_exposed": count})
 
-    def finish(self, trial_id, attempt, *, status, outcome_hash):
+    def finish(self, trial_id, attempt, *, status, outcome_hash, historical_price_rows_exposed=None):
+        count = exposure_count(self.provenance, historical_price_rows_exposed)
         if status not in {"PASS", "FAIL", "EMPTY", "INTERRUPTED"} or re.fullmatch(r"[0-9a-f]{64}", outcome_hash) is None:
             raise SafetyError("D1_LEDGER_OUTCOME")
         with self._lock():
@@ -152,6 +174,8 @@ class Ledger:
             matches = [e for e in events if e["trial_id"] == trial_id and e["attempt"] == attempt]
             if len(matches) != 1 or matches[0]["status"] != "ATTEMPT_STARTED":
                 raise SafetyError("D1_LEDGER_ATTEMPT")
+            if count < matches[0]["historical_price_rows_exposed"]:
+                raise SafetyError("D1R_EXPOSURE_CANNOT_DECREASE")
             return self._append(events, {"trial_id": trial_id, "identity": matches[0]["identity"],
                                        "attempt": attempt, "status": status, "outcome_hash": outcome_hash,
-                                       "historical_exposure": 0})
+                                       "historical_price_rows_exposed": count})

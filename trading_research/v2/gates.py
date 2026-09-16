@@ -5,6 +5,7 @@ import re
 
 from trading_runtime.config import SafetyError
 from .bindings import PINS
+from .provenance import require_provenance, require_fixture_kind
 
 SOURCE = "SYNTHETIC_GOLDEN_D1"
 
@@ -59,8 +60,8 @@ def evaluate(bundle, stage, spec):
     This report is not authorization to execute a historical stage. Tail counts
     have no numeric acceptance threshold; their required presence is checked.
     """
-    if bundle.get("source") != SOURCE:
-        raise SafetyError("D1_REAL_DATA_FORBIDDEN")
+    mode = require_provenance(bundle.get("source"), stage=stage)
+    require_fixture_kind(bundle.get("fixture_kind"))
     if stage not in spec.base["acceptance"]:
         raise SafetyError("D1_STAGE")
     if bundle.get("variant") != spec.base["selection"]["canonical_id"]:
@@ -158,7 +159,9 @@ def evaluate(bundle, stage, spec):
                       bins[k].get("mean_R") is not None and bins[k]["mean_R"] > 0
                       for k in ("LOW", "NORMAL", "HIGH"))
         add("positive_eligible_regimes", passing, ">=", 2, "regime")
-    return {**PINS, "source": SOURCE, "stage": stage, "variant": bundle["variant"],
+    return {**PINS, "source": mode.value,
+            **({"fixture_kind": bundle["fixture_kind"]} if bundle.get("fixture_kind") else {}),
+            "stage": stage, "variant": bundle["variant"],
             "status": "PASS" if all(r["status"] == "PASS" for r in results) else "FAIL",
             "criteria": results, "opens_next_stage": False}
 

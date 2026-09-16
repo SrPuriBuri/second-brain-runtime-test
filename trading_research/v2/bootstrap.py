@@ -4,6 +4,7 @@ import math
 import numpy as np
 
 from trading_runtime.config import SafetyError
+from .provenance import Provenance, require_provenance, require_development_date
 
 
 def block_indices(n, spec):
@@ -18,8 +19,10 @@ def block_indices(n, spec):
 
 
 def lower_bound(daily, stage, spec, *, source):
-    if source != "SYNTHETIC_GOLDEN_D1":
-        raise SafetyError("D1_REAL_DATA_FORBIDDEN")
+    mode = require_provenance(source, stage=stage)
+    if mode is Provenance.DEVELOPMENT:
+        for day in daily:
+            require_development_date(day)
     days = sorted(daily)
     if any(type(daily[d]["count"]) is not int or daily[d]["count"] < 0 for d in days):
         raise SafetyError("D1_BOOTSTRAP_INVALID")

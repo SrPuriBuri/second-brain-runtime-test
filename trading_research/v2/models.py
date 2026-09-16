@@ -1,4 +1,4 @@
-"""Immutable synthetic-only D1 inputs. No archive reader or provider is exposed."""
+"""Immutable provenance-bound inputs. No archive reader or provider is exposed."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,6 +10,7 @@ from trading_research.v2_protocol import UNIVERSE
 from trading_runtime.config import SafetyError
 from .clock import STEP
 from .numeric import exact_decimal
+from .provenance import Provenance, require_provenance, require_development_date, require_fixture_kind
 
 # Explicit tzdata source rather than an ambient machine timezone database.
 with files("tzdata.zoneinfo.America").joinpath("New_York").open("rb") as _tz:
@@ -50,18 +51,38 @@ class Bar:
         return self.start + STEP
 
 
-class SyntheticSession:
-    """Explicit synthetic provenance. D1 has no real-data adapter or path loader."""
+@dataclass(frozen=True, init=False)
+class ResearchSession:
+    """Shared validation; only the two explicit session types are supported."""
 
-    def __init__(self, *, source, opened, closed, bars, halts=(), excluded=(), invalid_slots=()):
-        if source != "SYNTHETIC_GOLDEN_D1":
+    open: datetime
+    close: datetime
+    bars: object
+    halts: tuple
+    excluded: frozenset
+    invalid_slots: frozenset
+    source: str
+    stage: str | None
+    fixture_kind: str | None
+
+    def __init__(self, *, source, opened, closed, bars, halts=(), excluded=(), invalid_slots=(),
+                 stage=None, fixture_kind=None):
+        expected = {SyntheticSession: Provenance.SYNTHETIC,
+                    HistoricalDevelopmentSession: Provenance.DEVELOPMENT}.get(type(self))
+        mode = require_provenance(source, stage=stage)
+        if expected is None or mode is not expected:
             raise SafetyError("D1_REAL_DATA_FORBIDDEN")
+        require_fixture_kind(fixture_kind)
         if opened.tzinfo is None or closed.tzinfo is None or opened >= closed:
             raise SafetyError("D1_INVALID_SESSION")
         if opened.year >= 2025 or closed.year >= 2025:
             raise SafetyError("D1_OOS_FORBIDDEN")
         if opened.astimezone(NY).date() != closed.astimezone(NY).date():
             raise SafetyError("D1_CROSS_DAY")
+        # Before touching/iterating any supplied bars, including lazy iterables.
+        if mode is Provenance.DEVELOPMENT:
+            require_development_date(opened.astimezone(NY).date())
+            require_development_date(closed.astimezone(NY).date())
         copied = {}
         for symbol, rows in bars.items():
             if symbol not in UNIVERSE:
@@ -80,13 +101,11 @@ class SyntheticSession:
             if not opened <= a < b <= closed:
                 raise SafetyError("D1_INVALID_HALT")
             checked.append((a, b))
-        self.open = opened
-        self.close = closed
-        self.bars = MappingProxyType(copied)
-        self.halts = tuple(sorted(checked))
-        self.excluded = frozenset(excluded)
-        self.invalid_slots = frozenset(invalid_slots)
-        self.source = source
+        for key, value in {"open": opened, "close": closed, "bars": MappingProxyType(copied),
+                           "halts": tuple(sorted(checked)), "excluded": frozenset(excluded),
+                           "invalid_slots": frozenset(invalid_slots), "source": mode.value,
+                           "stage": stage, "fixture_kind": fixture_kind}.items():
+            object.__setattr__(self, key, value)
 
     def bar(self, symbol, at):
         if (symbol, at) in self.invalid_slots:
@@ -101,3 +120,40 @@ class SyntheticSession:
 def require_synthetic(session):
     if type(session) is not SyntheticSession or session.source != "SYNTHETIC_GOLDEN_D1":
         raise SafetyError("D1_REAL_DATA_FORBIDDEN")
+
+
+@dataclass(frozen=True, init=False)
+class SyntheticSession(ResearchSession):
+    """D1-compatible constructor and exact synthetic provenance."""
+
+
+@dataclass(frozen=True, init=False)
+class HistoricalDevelopmentSession(ResearchSession):
+    """Historical mode only; constructing one does not read an archive."""
+
+    def __init__(self, *, source=Provenance.DEVELOPMENT, stage="development", **kwargs):
+        super().__init__(source=source, stage=stage, **kwargs)
+
+
+def require_research_session(session):
+    expected = {SyntheticSession: Provenance.SYNTHETIC,
+                HistoricalDevelopmentSession: Provenance.DEVELOPMENT}.get(type(session))
+    if expected is None:
+        raise SafetyError("D1R_UNSUPPORTED_SESSION")
+    mode = require_provenance(session.source, stage=session.stage)
+    if mode is not expected:
+        raise SafetyError("D1R_SESSION_PROVENANCE_MISMATCH")
+    if mode is Provenance.DEVELOPMENT:
+        require_development_date(session.open.astimezone(NY).date())
+        require_development_date(session.close.astimezone(NY).date())
+    return mode
+
+
+def provenance_fields(session):
+    require_research_session(session)
+    result = {"source": session.source}
+    if session.stage is not None:
+        result["stage"] = session.stage
+    if session.fixture_kind is not None:
+        result["fixture_kind"] = session.fixture_kind
+    return result

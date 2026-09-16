@@ -8,15 +8,11 @@ from statistics import median
 from trading_runtime.config import SafetyError
 from .models import NY
 from .bindings import PINS
-
-
-def require_synthetic_records(records):
-    if any(r.get("source") != "SYNTHETIC_GOLDEN_D1" for r in records):
-        raise SafetyError("D1_REAL_DATA_FORBIDDEN")
+from .provenance import Provenance, require_records, require_development_date
 
 
 def scored(records):
-    require_synthetic_records(records)
+    require_records(records)
     return sorted((r for r in records if r.get("status") == "SCORED"
                    and not r.get("integrity_violations", 0) and r.get("R") is not None and math.isfinite(r["R"])),
                   key=exit_order)
@@ -26,9 +22,9 @@ def exit_order(record):
     return datetime.fromisoformat(record["accounting_exit_timestamp"]), record["symbol"]
 
 
-def severe_tails(records, *, stage, variant, record_type):
+def severe_tails(records, *, stage, variant, record_type, source=None):
     """C4: one explicitly identified SEVERE ledger, never pooled scenarios."""
-    require_synthetic_records(records)
+    require_records(records, source=source, stage=stage)
     if any((r.get("scenario"), r.get("stage"), r.get("variant"), r.get("record_type"))
            != ("SEVERE", stage, variant, record_type) for r in records):
         raise SafetyError("D1_TAIL_PARTITION")
@@ -84,10 +80,17 @@ def core(records):
             "integrity_violations": sum(r.get("integrity_violations", 0) for r in records)}
 
 
-def summarize(records, scheduled_days, spec):
-    require_synthetic_records(records)
+def summarize(records, scheduled_days, spec, *, source=None, stage=None):
+    mode = require_records(records, source=source, stage=stage)
+    if mode is Provenance.DEVELOPMENT:
+        for day in scheduled_days:
+            require_development_date(day)
     trades = scored(records)
-    result = {**PINS, "source": "SYNTHETIC_GOLDEN_D1", **core(records)}
+    result = {**PINS, "source": mode.value, **core(records)}
+    if mode is Provenance.DEVELOPMENT:
+        result["stage"] = "development"
+    if records and records[0].get("fixture_kind") is not None:
+        result["fixture_kind"] = records[0]["fixture_kind"]
     result["trades_per_scheduled_day"] = len(trades) / len(scheduled_days) if scheduled_days else None
     result["no_trade_days_by_reason"] = dict(Counter(r.get("reason", r["status"]) for r in records if r["status"] != "SCORED"))
     for name in ("wall", "tradable"):
@@ -129,13 +132,13 @@ def summarize(records, scheduled_days, spec):
     return result
 
 
-def summarize_ledger(records, scheduled_days, spec, *, stage, variant, scenario, record_type):
+def summarize_ledger(records, scheduled_days, spec, *, stage, variant, scenario, record_type, source=None):
     """An explicit partition is required even for an empty ledger."""
     if any((r.get("stage"), r.get("variant"), r.get("scenario"), r.get("record_type"))
            != (stage, variant, scenario, record_type) for r in records):
         raise SafetyError("D1_METRIC_PARTITION")
-    result = summarize(records, scheduled_days, spec)
+    result = summarize(records, scheduled_days, spec, source=source, stage=stage)
     result.update(stage=stage, variant=variant, scenario=scenario, record_type=record_type)
     if scenario == "SEVERE":
-        result["tail_counts"] = severe_tails(records, stage=stage, variant=variant, record_type=record_type)
+        result["tail_counts"] = severe_tails(records, stage=stage, variant=variant, record_type=record_type, source=source)
     return result
