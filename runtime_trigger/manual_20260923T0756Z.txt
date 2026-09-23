@@ -1,1 +1,0 @@
-Process current private bridge queue.
