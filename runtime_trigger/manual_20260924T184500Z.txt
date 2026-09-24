@@ -1,0 +1,3 @@
+Process pending private bridge requests.
+Priority: youtube stJnOPyfbIQ.
+Mode: transcript-first, chunked extraction, persist evidence required.
