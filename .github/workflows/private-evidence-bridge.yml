@@ -87,7 +87,7 @@ jobs:
               if not analysis.is_file():
                   unmaterialized += 1
 
-          maintenance_requested = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          maintenance_requested = os.getenv("GITHUB_EVENT_NAME") in {"workflow_dispatch", "push"}
           print(f"request_count={len(all_requests)}")
           print(f"eligible_request_count={len(requests)}")
           print(f"unmaterialized_count={unmaterialized}")
