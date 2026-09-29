@@ -225,6 +225,85 @@ def youtube_transcript_http_fallback(url: str) -> dict[str, Any]:
     }
 
 
+def youtube_ytdlp_transcript(url: str) -> dict[str, Any]:
+    """Fetch YouTube captions with yt-dlp, following Agent Reach's transcript retry chain."""
+    with tempfile.TemporaryDirectory(prefix="second-brain-youtube-subs-") as temp:
+        root = Path(temp)
+        output_template = str(root / "%(id)s.%(ext)s")
+        completed = base.run(
+            [
+                "yt-dlp",
+                "--write-subs",
+                "--write-auto-subs",
+                "--sub-langs",
+                "es.*,en.*",
+                "--sub-format",
+                "json3",
+                "--skip-download",
+                "--no-warnings",
+                "-o",
+                output_template,
+                url,
+            ],
+            timeout=60,
+        )
+        files = sorted(root.glob("*.json3"))
+        if not files:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise RuntimeError(detail[-500:] or "yt-dlp produced no subtitle files")
+
+        candidates: list[dict[str, Any]] = []
+        for path in files:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            segments = []
+            clean_parts = []
+            for event in payload.get("events") or []:
+                if not isinstance(event, dict):
+                    continue
+                raw_text = "".join(
+                    str(seg.get("utf8") or "")
+                    for seg in (event.get("segs") or [])
+                    if isinstance(seg, dict)
+                )
+                text_value = re.sub(r"\s+", " ", raw_text).strip()
+                if not text_value:
+                    continue
+                start_ms = event.get("tStartMs")
+                duration_ms = event.get("dDurationMs")
+                start = start_ms / 1000 if isinstance(start_ms, (int, float)) else None
+                end = (
+                    (start_ms + duration_ms) / 1000
+                    if isinstance(start_ms, (int, float)) and isinstance(duration_ms, (int, float))
+                    else None
+                )
+                segments.append({"start": start, "end": end, "text": text_value})
+                clean_parts.append(text_value)
+
+            text_value = " ".join(clean_parts).strip()
+            if text_value:
+                candidates.append(
+                    {
+                        "available": True,
+                        "language": None,
+                        "text": text_value,
+                        "segments": segments,
+                        "provenance": "agent-reach:yt-dlp-subtitles",
+                        "_path": path.name,
+                    }
+                )
+
+        if not candidates:
+            raise RuntimeError("yt-dlp subtitle files contained no usable text")
+
+        candidates.sort(key=lambda item: len(str(item.get("text") or "")), reverse=True)
+        best = candidates[0]
+        best.pop("_path", None)
+        return best
+
+
 @contextmanager
 def parth_deadline() -> Any:
     seconds = int(os.getenv("SECOND_BRAIN_PARTH_TIMEOUT_SECONDS", "35"))
@@ -557,6 +636,15 @@ def process_youtube(url: str, gemini: Gemini | None) -> dict[str, Any]:
     if not has_evidence(evidence):
         t0 = time.monotonic()
         try:
+            evidence["transcript"] = youtube_ytdlp_transcript(url)
+            attempts.append({"method": "agent-reach:yt-dlp-subtitles", "success": has_evidence(evidence), "seconds": round(time.monotonic() - t0, 3)})
+        except Exception as exc:
+            attempts.append({"method": "agent-reach:yt-dlp-subtitles", "success": False, "seconds": round(time.monotonic() - t0, 3), "error": str(exc)})
+            warnings.append(f"Agent Reach yt-dlp subtitle fallback: {exc}")
+
+    if not has_evidence(evidence):
+        t0 = time.monotonic()
+        try:
             evidence["transcript"] = youtube_transcript_http_fallback(url)
             attempts.append({"method": "youtube-transcript-http-fallback", "success": has_evidence(evidence), "seconds": round(time.monotonic() - t0, 3)})
         except Exception as exc:
@@ -565,10 +653,10 @@ def process_youtube(url: str, gemini: Gemini | None) -> dict[str, Any]:
 
     sensors = {}
     pre_visual_sensitive, pre_visual_triggers = youtube_visual_sensitive(source, evidence)
-    if gemini:
+    transcript_already_available = bool((evidence.get("transcript") or {}).get("available"))
+    if gemini and (pre_visual_sensitive or not transcript_already_available):
         t0 = time.monotonic()
         try:
-            transcript_already_available = bool((evidence.get("transcript") or {}).get("available"))
             if pre_visual_sensitive and transcript_already_available:
                 result = gemini.youtube_visual(url)
             else:
