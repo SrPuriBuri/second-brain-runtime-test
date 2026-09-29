@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 20
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
       SECOND_BRAIN_GEMINI_EVIDENCE_MODEL: gemini-3.5-flash-lite
       SECOND_BRAIN_MAX_REQUESTS_PER_RUN: "25"
       SECOND_BRAIN_MAX_CONCURRENT_SOURCES: "2"
@@ -127,6 +128,14 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends ffmpeg
           fi
           python -m pip install -r runtime/runtime-requirements.txt
+          mkdir -p "$HOME/.config/yt-dlp"
+          grep -qxF -- '--js-runtimes node' "$HOME/.config/yt-dlp/config" 2>/dev/null || printf '%s\n' '--js-runtimes node' >> "$HOME/.config/yt-dlp/config"
+          if command -v npm >/dev/null 2>&1; then
+            npm install -g mcporter || true
+            if command -v mcporter >/dev/null 2>&1; then
+              mcporter config add exa https://mcp.exa.ai/mcp --scope home || true
+            fi
+          fi
           agent-reach --help >/dev/null
           agent-reach doctor --json > /tmp/agent-reach-doctor.json || true
           cat /tmp/agent-reach-doctor.json || true
