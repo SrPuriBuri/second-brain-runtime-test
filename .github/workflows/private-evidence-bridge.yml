@@ -127,6 +127,9 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends ffmpeg
           fi
           python -m pip install -r runtime/runtime-requirements.txt
+          agent-reach --help >/dev/null
+          agent-reach doctor --json > /tmp/agent-reach-doctor.json || true
+          cat /tmp/agent-reach-doctor.json || true
 
       - name: Process private queue
         if: steps.pending.outputs.has_requests == 'true'
