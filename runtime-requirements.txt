@@ -5,3 +5,4 @@ parth-dl==1.2.1
 google-genai==2.22.0
 youtube-transcript-api==1.2.4
 PyYAML==6.0.3
+agent-reach @ git+https://github.com/Panniantong/Agent-Reach.git@a19a171fa980a0785849596492e0af4db800c82f
